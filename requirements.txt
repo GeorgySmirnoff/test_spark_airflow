@@ -1,0 +1,17 @@
+apache-airflow==2.10.5
+apache-airflow-providers-apache-spark==2.0.3
+apache-airflow-providers-postgres==5.13.0
+apache-airflow-providers-celery==3.9.0
+apache-airflow-providers-redis==3.8.0
+
+pyspark==3.5.3
+
+pandas==2.2.3
+numpy==2.1.2
+scipy==1.14.1
+
+sqlalchemy==1.4.54
+psycopg2-binary==2.9.10
+
+pytest==8.3.4
+black==24.10.0

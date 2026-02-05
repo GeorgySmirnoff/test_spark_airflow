@@ -1,0 +1,130 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: ${POSTGRES_CONTAINER_NAME:-postgres}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "${POSTGRES_PORT_OUT:-5444}:${POSTGRES_PORT_IN:-5432}"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+
+  airflow-initdb:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__LOGGING__BASE_LOG_FOLDER: /usr/local/airflow/logs
+      AIRFLOW__LOGGING__REMOTE_LOGGING: False
+    entrypoint: >
+      bash -c "airflow db init && 
+               sleep 2 &&
+               (airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true) &&
+               (airflow connections delete 'spark_default' || true) &&
+               airflow connections add 'spark_default' --conn-type 'spark' --conn-host 'local' --conn-extra '{\"queue\": \"default\", \"deploy-mode\": \"client\", \"spark-home\": \"/opt/spark\", \"spark-binary\": \"spark-submit\", \"namespace\": \"default\", \"master\": \"local[*]\"}' &&
+               (airflow connections delete 'pg_covid_bd' || true) &&
+               airflow connections add 'pg_covid_bd' --conn-type 'postgres' --conn-host '${POSTGRES_HOST}' --conn-login '${POSTGRES_USER}' --conn-password '${POSTGRES_PASSWORD}' --conn-port '${POSTGRES_PORT_IN}' --conn-schema '${POSTGRES_DB}' &&
+               
+               mkdir -p /usr/local/airflow/logs"
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: airflow-webserver
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-initdb:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__LOGGING__BASE_LOG_FOLDER: /usr/local/airflow/logs
+      AIRFLOW__LOGGING__REMOTE_LOGGING: False
+      AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: True
+      PYTHONPATH: /usr/local/airflow/jobs
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_PORT: ${POSTGRES_PORT_IN:-5432}
+    volumes:
+      - ./dags:/usr/local/airflow/dags
+      - ./jobs:/usr/local/airflow/jobs
+      - ./logs:/usr/local/airflow/logs
+      - ./data:/usr/local/airflow/data
+    ports:
+      - "${AIRFLOW_PORT_OUT:-8080}:${AIRFLOW_PORT_IN:-8080}"
+    command: >
+      bash -c "airflow webserver"
+
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: airflow-scheduler
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-initdb:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__LOGGING__BASE_LOG_FOLDER: /usr/local/airflow/logs
+      AIRFLOW__LOGGING__REMOTE_LOGGING: False
+      AIRFLOW__LOGGING__LOG_LEVEL: INFO
+      AIRFLOW__SCHEDULER__CATCHUP_BY_DEFAULT: False
+      PYTHONPATH: /usr/local/airflow/jobs
+    volumes:
+      - ./dags:/usr/local/airflow/dags
+      - ./jobs:/usr/local/airflow/jobs
+      - ./logs:/usr/local/airflow/logs
+      - ./data:/usr/local/airflow/data
+    command: >
+      bash -c "mkdir -p /usr/local/airflow/logs && 
+               airflow scheduler"
+
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile.jupyter
+    container_name: jupyter
+    ports:
+      - "${JUPYTER_PORT_OUT:-8888}:${JUPYTER_PORT_IN:-8888}"
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./jobs:/home/jovyan/jobs
+      - ./data:/home/jovyan/data
+    environment:
+      JUPYTER_ENABLE_LAB: yes
+      PYTHONPATH: /home/jovyan/jobs
+      SPARK_JARS: /usr/local/spark/jars/postgresql-42.7.0.jar
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_PORT: ${POSTGRES_PORT_IN:-5432}
+    command: >
+      sh -c "pip install psycopg2-binary && 
+             start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''"
+
+volumes:
+  postgres_data:

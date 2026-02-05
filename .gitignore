@@ -1,0 +1,36 @@
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Airflow
+airflow.db
+*.pid
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data (optional - раскомментируйте если не хотите коммитить данные)
+# data/
+spark-*.tgz

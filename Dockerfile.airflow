@@ -1,0 +1,59 @@
+FROM python:3.10-slim
+
+RUN apt-get update && apt-get install -y \
+    wget \
+    curl \
+    openjdk-21-jdk-headless \
+    procps \
+    vim \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV SPARK_VERSION=3.5.0
+ENV HADOOP_VERSION=3
+ENV SPARK_HOME=/opt/spark
+ENV PATH=$SPARK_HOME/bin:$PATH
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+ENV PYSPARK_PYTHON=python3
+ENV PYSPARK_DRIVER_PYTHON=python3
+
+RUN wget -q https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz \
+    && tar xzf spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz -C /opt \
+    && mv /opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} /opt/spark \
+    && rm spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz
+
+RUN mkdir -p /opt/spark/jars \
+    && wget -q https://jdbc.postgresql.org/download/postgresql-42.7.0.jar -P /opt/spark/jars/
+
+RUN pip install --user psycopg2-binary==2.9.9 'apache-airflow[postgres]==2.10.2' \
+ --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.2/constraints-3.10.txt"
+
+
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+RUN mkdir -p /usr/local/airflow/dags
+RUN mkdir -p /usr/local/airflow/dags/data
+
+WORKDIR /usr/local/airflow
+ENV AIRFLOW_HOME=/usr/local/airflow
+ENV PATH=/root/.local/bin:$PATH
+
+ENV AIRFLOW__CORE__EXECUTOR=LocalExecutor
+ENV AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+ENV AIRFLOW__CORE__LOAD_EXAMPLES=False
+ENV AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS=False
+ENV AIRFLOW__DATABASE__LOAD_DEFAULT_CONNECTIONS=False
+ENV AIRFLOW__CORE__EXPOSE_HOSTNAME=True
+ENV AIRFLOW__CORE__EXPOSE_STACKTRACE=True
+
+ENV AIRFLOW__SPARK__SPARK_BINARY=/opt/spark/bin/spark-submit
+ENV AIRFLOW__SPARK__SPARK_HOME=/opt/spark
+
+ENV HADOOP_CONF_DIR=""
+ENV YARN_CONF_DIR=""
+
+ENV SPARK_MASTER='local[*]'
+ENV YARN_CONF_DIR='client'
+
+COPY ./dags/ /usr/local/airflow/dags/
+COPY ./data /usr/local/airflow/data
